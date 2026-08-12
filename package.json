@@ -11,6 +11,8 @@
     "dev": "node scripts/dev.mjs",
     "build": "node scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
+    "selftest": "node scripts/selftest.mjs",
+    "icons": "node scripts/make-icons.mjs",
     "package": "npm run build && electron-builder --win --publish never",
     "start": "npm run build && electron ."
   },
