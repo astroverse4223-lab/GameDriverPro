@@ -174,7 +174,14 @@ export function Ring({
   label?: ReactNode
   caption?: string
 }) {
-  const radius = (size - stroke) / 2
+  // The arc's glow needs clear space inside the SVG viewport. Drawn edge to
+  // edge, the drop-shadow is clipped by the viewport and the blur stops in a
+  // hard square instead of fading out. Insetting the circle by more than the
+  // blur radius lets the glow fall off naturally, and keeps the SVG box exactly
+  // `size` so nothing overflows or shifts the surrounding layout.
+  const glow = Math.max(4, Math.round(stroke * 0.7))
+  const inset = glow * 2
+  const radius = Math.max(1, (size - stroke) / 2 - inset)
   const circumference = 2 * Math.PI * radius
   const clamped = Math.max(0, Math.min(100, value))
   const [drawn, setDrawn] = useState(0)
@@ -200,7 +207,10 @@ export function Ring({
           strokeLinecap="round"
           strokeDasharray={circumference}
           strokeDashoffset={circumference - (drawn / 100) * circumference}
-          style={{ transition: 'stroke-dashoffset 1.1s cubic-bezier(0.22,1,0.36,1)', filter: `drop-shadow(0 0 8px ${color})` }}
+          style={{
+            transition: 'stroke-dashoffset 1.1s cubic-bezier(0.22,1,0.36,1)',
+            filter: `drop-shadow(0 0 ${glow}px ${color})`
+          }}
         />
       </svg>
       <div className="ring__value">

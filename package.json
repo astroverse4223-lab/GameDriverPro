@@ -37,13 +37,25 @@
     "directories": { "output": "release" },
     "files": ["dist/**/*", "resources/**/*"],
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "icon": "resources/icon.png",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
       "requestedExecutionLevel": "asInvoker"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true,
-      "perMachine": false
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "GameDriver Pro",
+      "artifactName": "GameDriver-Pro-Setup-${version}.${ext}",
+      "uninstallDisplayName": "GameDriver Pro"
+    },
+    "portable": {
+      "artifactName": "GameDriver-Pro-Portable-${version}.${ext}"
     }
   }
 }

@@ -156,9 +156,9 @@ export function HomePage() {
 
         <div className="hero__score">
           {health ? (
-            <Ring value={health.score} caption="Gaming health" size={148} />
+            <Ring value={health.score} caption="Gaming health" size={176} />
           ) : (
-            <Ring value={0} label={healthLoading ? '…' : '?'} caption="Not checked" size={148} />
+            <Ring value={0} label={healthLoading ? '…' : '?'} caption="Not checked" size={176} />
           )}
           <div className="small faint" style={{ maxWidth: 170, textAlign: 'center', marginTop: 6 }}>
             {health
