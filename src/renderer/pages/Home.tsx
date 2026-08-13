@@ -193,7 +193,7 @@ export function HomePage() {
             )
           }
         >
-          {gpuSeries.some((v) => v !== null) && <Sparkline values={gpuSeries} color="#22d3ee" />}
+          {gpuSeries.some((v) => v !== null) && <Sparkline values={gpuSeries} color="#22d3ee" max={100} />}
         </Stat>
 
 
@@ -212,7 +212,7 @@ export function HomePage() {
             </>
           }
         >
-          {cpuSeries.some((v) => v !== null) && <Sparkline values={cpuSeries} color="#8b5cf6" />}
+          {cpuSeries.some((v) => v !== null) && <Sparkline values={cpuSeries} color="#8b5cf6" max={100} />}
         </Stat>
 
         <Stat
@@ -228,7 +228,7 @@ export function HomePage() {
               : DASH
           }
         >
-          {memSeries.length > 1 && <Sparkline values={memSeries} color="#a3e635" />}
+          {memSeries.length > 1 && <Sparkline values={memSeries} color="#a3e635" max={100} />}
         </Stat>
 
         <Stat

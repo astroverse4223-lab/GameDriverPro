@@ -98,9 +98,27 @@ npm run dev        # Vite dev server + Electron with main/preload watch-rebuild
 npm run typecheck  # main/preload and renderer projects
 npm run selftest   # run every service against this machine (read-only)
 npm run build      # bundle main, preload and renderer
-npm run package    # NSIS installer via electron-builder
+npm run package    # installer + portable exe via electron-builder
 npm run icons      # regenerate app/tray icons procedurally
 ```
+
+### Installing
+
+`npm run package` writes three things to `release/`:
+
+| Artifact | What it is |
+| --- | --- |
+| `GameDriver-Pro-Setup-<version>.exe` | NSIS installer. Per-user by default, lets you choose the install directory, creates Start Menu and desktop shortcuts, and registers an uninstaller. |
+| `GameDriver-Pro-Portable-<version>.exe` | Single self-contained executable. Run it from anywhere — nothing is installed. |
+| `win-unpacked/GameDriver Pro.exe` | The raw unpacked build, useful for debugging a packaged issue. |
+
+The binaries are unsigned, so Windows SmartScreen will warn on first run
+(*More info → Run anyway*). Signing needs a code-signing certificate, which this
+project does not ship.
+
+To use driver installation, restore points or driver export, right-click the
+installed shortcut and choose **Run as administrator** — the app never elevates
+itself.
 
 ### `npm run selftest`
 

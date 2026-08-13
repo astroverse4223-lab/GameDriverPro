@@ -182,8 +182,24 @@ export function Chart({
   )
 }
 
-/** Tiny inline trend line used inside stat tiles. */
-export function Sparkline({ values, color, height = 34 }: { values: (number | null)[]; color: string; height?: number }) {
+/**
+ * Tiny inline trend line used inside stat tiles.
+ *
+ * `max` fixes the scale — pass 100 for percentages. Without it a nearly flat
+ * series is normalised to its own peak and pins itself to the top of the box,
+ * where it reads as an underline beneath the tile text rather than as a trend.
+ */
+export function Sparkline({
+  values,
+  color,
+  height = 34,
+  max: fixedMax
+}: {
+  values: (number | null)[]
+  color: string
+  height?: number
+  max?: number
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -202,7 +218,8 @@ export function Sparkline({ values, color, height = 34 }: { values: (number | nu
 
     const finite = values.filter((v): v is number => v !== null && Number.isFinite(v))
     if (finite.length === 0) return
-    const max = Math.max(...finite, 1)
+    // Headroom keeps even a peak sample off the very top edge of the tile.
+    const max = fixedMax ?? Math.max(...finite, 1) * 1.2
 
     const xFor = (index: number) => (width / Math.max(1, values.length - 1)) * index
     const yFor = (value: number) => height - 2 - (value / max) * (height - 4)
@@ -236,7 +253,7 @@ export function Sparkline({ values, color, height = 34 }: { values: (number | nu
     gradient.addColorStop(1, `${color}00`)
     context.fillStyle = gradient
     context.fill()
-  }, [values, color, height])
+  }, [values, color, height, fixedMax])
 
   return (
     <div className="stat__spark" style={{ height }}>
