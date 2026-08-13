@@ -245,7 +245,19 @@ export interface DriverInventory {
   warnings: string[]
 }
 
-export type UpdateClassification = 'critical' | 'recommended' | 'optional' | 'experimental' | 'unknown'
+/**
+ * `not-recommended` is for offers the app actively advises against — chiefly a
+ * source offering an older driver than the one installed. It is deliberately
+ * distinct from `optional`: "you could take this" and "taking this moves you
+ * backwards" must not share a label or a colour.
+ */
+export type UpdateClassification =
+  | 'critical'
+  | 'recommended'
+  | 'optional'
+  | 'experimental'
+  | 'unknown'
+  | 'not-recommended'
 export type RiskLevel = 'low' | 'medium' | 'high' | 'unknown'
 
 export interface DriverSourceRef {

@@ -79,7 +79,11 @@ function pureUnitChecks(): void {
 
   // The real case this machine exhibits: Windows Update offering an older driver.
   const downgrade = classifyWuUpdate('30.0.100.9805', '31.0.101.2141', null, false, 'graphics')
-  check('WU downgrade detected', downgrade.isDowngrade && downgrade.classification === 'optional')
+  check(
+    'WU downgrade is classed not-recommended, not optional',
+    downgrade.isDowngrade && downgrade.classification === 'not-recommended',
+    downgrade.classification
+  )
   check('WU downgrade explains itself', downgrade.rationale.some((r) => /older/i.test(r)))
   const upgrade = classifyWuUpdate('10.0.2', '10.0.1', null, false, 'audio')
   check('WU newer audio is recommended', upgrade.classification === 'recommended' && !upgrade.isDowngrade)

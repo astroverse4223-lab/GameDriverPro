@@ -164,11 +164,12 @@ export async function scanForDriverUpdates(options: ScanOptions): Promise<ScanRe
  */
 function dedupe(updates: DriverUpdate[]): DriverUpdate[] {
   const weight: Record<DriverUpdate['classification'], number> = {
-    critical: 4,
-    recommended: 3,
-    optional: 2,
-    experimental: 1,
-    unknown: 0
+    critical: 5,
+    recommended: 4,
+    optional: 3,
+    experimental: 2,
+    unknown: 1,
+    'not-recommended': 0
   }
   const byDevice = new Map<string, DriverUpdate>()
   for (const update of updates) {

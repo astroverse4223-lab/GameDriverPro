@@ -66,7 +66,8 @@ const CLASSIFICATION_TONE: Record<UpdateClassification, 'bad' | 'warn' | 'info' 
   recommended: 'warn',
   optional: 'info',
   experimental: 'brand',
-  unknown: 'muted'
+  unknown: 'muted',
+  'not-recommended': 'muted'
 }
 
 const CLASSIFICATION_LABEL: Record<UpdateClassification, string> = {
@@ -74,8 +75,19 @@ const CLASSIFICATION_LABEL: Record<UpdateClassification, string> = {
   recommended: 'Recommended',
   optional: 'Optional',
   experimental: 'Experimental',
-  unknown: 'Unknown'
+  unknown: 'Unknown',
+  'not-recommended': 'Not recommended'
 }
+
+/** Most-actionable first; things to ignore last. */
+const CLASSIFICATION_ORDER: UpdateClassification[] = [
+  'critical',
+  'recommended',
+  'optional',
+  'experimental',
+  'unknown',
+  'not-recommended'
+]
 
 type View = 'updates' | 'installed' | 'safety'
 
@@ -107,7 +119,8 @@ export function DriversPage() {
       recommended: [],
       optional: [],
       experimental: [],
-      unknown: []
+      unknown: [],
+      'not-recommended': []
     }
     for (const update of updates) byClass[update.classification].push(update)
     return byClass
@@ -268,7 +281,7 @@ export function DriversPage() {
             </Panel>
           ) : (
             <div className="stack">
-              {(['critical', 'recommended', 'optional', 'experimental', 'unknown'] as UpdateClassification[]).map(
+              {CLASSIFICATION_ORDER.map(
                 (classification) =>
                   grouped[classification].length > 0 && (
                     <Panel
@@ -401,13 +414,13 @@ export function DriversPage() {
               )}
               {detail.action !== 'manual' && (
                 <Button
-                  variant="primary"
+                  variant={detail.classification === 'not-recommended' ? 'danger' : 'primary'}
                   onClick={() => {
                     setInstall({ update: detail, restorePoint: true, cleanInstall: false, silent: true })
                     setDetail(null)
                   }}
                 >
-                  Update…
+                  {detail.classification === 'not-recommended' ? 'Install it anyway…' : 'Update…'}
                 </Button>
               )}
               <Button variant="ghost" onClick={() => setDetail(null)}>
@@ -517,6 +530,15 @@ export function DriversPage() {
               </Note>
             )}
 
+            {install.update.classification === 'not-recommended' && (
+              <Note tone="bad">
+                <strong>This is a downgrade.</strong> You are about to replace {text(install.update.currentVersion)} with the
+                older {text(install.update.availableVersion)}. That is occasionally what you want — if the newer driver
+                misbehaves, Microsoft's generic one is a known-stable fallback — but it is not an update, and Windows may
+                re-offer the newer driver afterwards.
+              </Note>
+            )}
+
             {progress && installing && (
               <div className="stack stack--sm">
                 <div className="split small">
@@ -607,6 +629,8 @@ function noteFor(classification: UpdateClassification): string {
       return 'Beta or non-WHQL releases. Useful for a specific title or fix, less validated than a stable release.'
     case 'unknown':
       return 'GameDriver Pro could not confirm whether a newer version exists, so it makes no claim. Check the official page.'
+    case 'not-recommended':
+      return 'Offered by a source, but it would replace your driver with an older one. Listed only so you know why Windows keeps proposing it — there is nothing to do here.'
   }
 }
 
@@ -620,6 +644,7 @@ function UpdateCard({
   onInstall: () => void
 }) {
   const Icon = CATEGORY_ICONS[update.category] ?? IconChip
+  const isRegression = update.classification === 'not-recommended'
   const modifier =
     update.classification === 'critical' ? ' update--critical' : update.classification === 'recommended' ? ' update--recommended' : ''
 
@@ -645,26 +670,28 @@ function UpdateCard({
       <div className="update__versions">
         <div className="update__ver">
           <span>Installed</span>
-          <strong>{text(update.currentVersion)}</strong>
+          <strong style={isRegression ? { color: 'var(--lime)' } : undefined}>
+            {text(update.currentVersion)}
+            {isRegression && <span className="small faint" style={{ fontWeight: 400 }}> (newer)</span>}
+          </strong>
         </div>
-        {update.availableVersion && (
-          <>
-            <span className="update__arrow">→</span>
-            <div className="update__ver">
-              <span>Available</span>
-              <strong style={{ color: 'var(--accent)' }}>{update.availableVersion}</strong>
-            </div>
-          </>
-        )}
-        {!update.availableVersion && (
-          <>
-            <span className="update__arrow">→</span>
-            <div className="update__ver">
-              <span>Available</span>
-              <strong className="faint">Not determined</strong>
-            </div>
-          </>
-        )}
+        <span className="update__arrow" style={isRegression ? { color: 'var(--text-faint)' } : undefined}>
+          {isRegression ? '↩' : '→'}
+        </span>
+        <div className="update__ver">
+          {/* A downgrade is not something that is "available" to you in any
+              useful sense — naming and colouring it like an upgrade is what made
+              this card read as a recommendation. */}
+          <span>{isRegression ? 'Would replace with' : 'Available'}</span>
+          {update.availableVersion ? (
+            <strong style={{ color: isRegression ? 'var(--text-faint)' : 'var(--accent)' }}>
+              {update.availableVersion}
+              {isRegression && <span className="small faint" style={{ fontWeight: 400 }}> (older)</span>}
+            </strong>
+          ) : (
+            <strong className="faint">Not determined</strong>
+          )}
+        </div>
       </div>
 
       <ul className="reasons">
@@ -677,10 +704,13 @@ function UpdateCard({
         <Button variant="ghost" onClick={onDetails}>
           View details
         </Button>
-        {update.action !== 'manual' ? (
+        {update.action !== 'manual' && !isRegression ? (
           <Button variant="primary" icon={<IconDownload size={14} />} onClick={onInstall}>
             {update.action === 'vendor-install' ? 'Download & install' : 'Update'}
           </Button>
+        ) : isRegression ? (
+          // Reachable, but only through the details view — never the primary action.
+          <span className="small faint">Nothing to do</span>
         ) : (
           <Button
             icon={<IconExternal size={14} />}

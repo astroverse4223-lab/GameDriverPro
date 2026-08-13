@@ -152,7 +152,7 @@ export function classifyWuUpdate(
       'This normally happens when a manufacturer driver is installed and Microsoft only distributes a generic one. Installing it would move you backwards.'
     )
     rationale.push('Not recommended — no action needed.')
-    return { classification: 'optional', risk: 'medium', rationale, isDowngrade: true }
+    return { classification: 'not-recommended', risk: 'medium', rationale, isDowngrade: true }
   }
 
   if (deviceHasProblem) {
@@ -263,10 +263,12 @@ export const windowsUpdateSource: DriverSource = {
         classification,
         risk,
         rationale,
-        // Windows Update packages are signed and installable through the same
-        // agent Windows itself uses — except downgrades, which the app will not
-        // offer as a one-click action.
-        action: isDowngrade ? 'manual' : 'install',
+        // Windows Update packages are all installable through the same agent
+        // Windows itself uses. A downgrade stays installable — it is the user's
+        // machine, and rolling back to Microsoft's generic driver is sometimes
+        // exactly what you want — but the UI keeps it out of the primary action
+        // and makes you go through the details view to reach it.
+        action: 'install',
         download: null,
         sizeBytes: row.sizeBytes,
         updateIdentity: { updateId: row.updateId, revision: row.revision },
