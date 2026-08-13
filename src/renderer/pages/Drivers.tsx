@@ -558,7 +558,15 @@ export function DriversPage() {
               </div>
             )}
 
-            {install.update.action === 'vendor-install' && install.update.download ? (
+            {install.update.action === 'catalog-install' ? (
+              <Note>
+                GameDriver Pro downloads this WHQL-signed package from Microsoft's update CDN, checks its Authenticode
+                signature, extracts it, and installs it with Windows' own <span className="mono">pnputil</span>. pnputil
+                matches each driver against the hardware actually present, so a package that does not belong to this PC is
+                never bound to a device. This is the same catalogue IT administrators pull drivers from — not a third-party
+                driver repository.
+              </Note>
+            ) : install.update.action === 'vendor-install' && install.update.download ? (
               <Note>
                 GameDriver Pro downloads this package from{' '}
                 <span className="mono">{new URL(install.update.download.url).hostname}</span> — the URL{' '}
@@ -706,7 +714,7 @@ function UpdateCard({
         </Button>
         {update.action !== 'manual' && !isRegression ? (
           <Button variant="primary" icon={<IconDownload size={14} />} onClick={onInstall}>
-            {update.action === 'vendor-install' ? 'Download & install' : 'Update'}
+            {update.action === 'install' ? 'Update' : 'Download & install'}
           </Button>
         ) : isRegression ? (
           // Reachable, but only through the details view — never the primary action.

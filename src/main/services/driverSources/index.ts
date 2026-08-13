@@ -3,6 +3,7 @@ import { getDriverInventory } from '../drivers'
 import { GAMING_CATEGORIES } from '../classify'
 import { store } from '../db'
 import { log, describeError } from '../logger'
+import { catalogSource } from './catalogSource'
 import { nvidiaSource } from './nvidiaSource'
 import { vendorPageSource } from './vendorPages'
 import { windowsUpdateSource } from './windowsUpdate'
@@ -18,7 +19,7 @@ import type { DriverUpdate, ScanProgress, ScanResult, SourceStatus } from '../..
  * is surfaced, never silently treated as "nothing to update".
  */
 
-export const SOURCES: DriverSource[] = [nvidiaSource, windowsUpdateSource, vendorPageSource]
+export const SOURCES: DriverSource[] = [nvidiaSource, windowsUpdateSource, catalogSource, vendorPageSource]
 
 export interface ScanOptions {
   allowVendorLookups: boolean
@@ -52,7 +53,9 @@ export async function scanForDriverUpdates(options: ScanOptions): Promise<ScanRe
   const updates: DriverUpdate[] = []
 
   const enabledSources = SOURCES.filter((source) => {
-    if (source.id === 'windows-update') return options.allowWindowsUpdate
+    // The catalogue is a Microsoft source, so it follows the Windows Update
+    // switch rather than the manufacturer-lookup one.
+    if (source.id === 'windows-update' || source.id === 'update-catalog') return options.allowWindowsUpdate
     if (source.kind === 'vendor-api') return options.allowVendorLookups
     return true
   })

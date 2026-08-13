@@ -270,6 +270,7 @@ export const windowsUpdateSource: DriverSource = {
         // and makes you go through the details view to reach it.
         action: 'install',
         download: null,
+        catalog: null,
         sizeBytes: row.sizeBytes,
         updateIdentity: { updateId: row.updateId, revision: row.revision },
         verified: true,

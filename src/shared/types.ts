@@ -301,13 +301,17 @@ export interface DriverUpdate {
   /** Human-readable explanation lines. Every recommendation must justify itself. */
   rationale: string[]
   /**
-   * 'install'        — installable through the Windows Update Agent.
-   * 'vendor-install' — the app can download and run the manufacturer's own installer.
-   * 'manual'         — hand off to the manufacturer's official page.
+   * 'install'         — installable through the Windows Update Agent.
+   * 'vendor-install'  — the app downloads and runs the manufacturer's own installer.
+   * 'catalog-install' — the app fetches a WHQL package from the Microsoft Update
+   *                     Catalog and installs it with Windows' own pnputil.
+   * 'manual'          — hand off to the manufacturer's official page.
    */
-  action: 'install' | 'vendor-install' | 'manual'
+  action: 'install' | 'vendor-install' | 'catalog-install' | 'manual'
   /** Set when action is 'vendor-install'. */
   download: VendorDownload | null
+  /** Set when action is 'catalog-install'. */
+  catalog: { updateId: string; title: string } | null
   sizeBytes: number | null
   /** Windows Update identity, when the source is Windows Update. */
   updateIdentity: { updateId: string; revision: number } | null

@@ -338,6 +338,7 @@ async function checkGpu(gpu: GpuInfo, ctx: SourceContext): Promise<{ update: Dri
       risk,
       rationale,
       action: officialDownload ? 'vendor-install' : 'manual',
+      catalog: null,
       download: officialDownload
         ? {
             url: downloadUrl,
@@ -380,6 +381,7 @@ function manualFallback(gpu: GpuInfo, reason: string): DriverUpdate {
     rationale: [reason, 'Check NVIDIA’s official driver page manually to confirm the current version for this GPU.'],
     action: 'manual',
     download: null,
+    catalog: null,
     sizeBytes: null,
     updateIdentity: null,
     verified: true,

@@ -593,6 +593,211 @@ export async function installVendorDriver(params: VendorInstallParams): Promise<
   }
 }
 
+// --- Microsoft Update Catalog installation ----------------------------------
+
+/**
+ * Expands a signed .cab and installs every driver package inside it with
+ * pnputil, Windows' own driver-store tool.
+ *
+ * pnputil is the safety net as well as the mechanism: it matches each INF
+ * against the hardware actually present, so a package that does not belong to
+ * this machine is added to the store but never bound to a device.
+ */
+const EXPAND_AND_INSTALL_SCRIPT = `
+$cab = $env:GDP_ARG_CAB
+$dir = $env:GDP_ARG_DIR
+$out = [ordered]@{ ok = $false; infCount = 0; installed = 0; exitCode = -1; message = ''; reboot = $false }
+try {
+  if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+  $expand = & expand.exe $cab -F:* $dir 2>&1
+  $infs = @(Get-ChildItem -LiteralPath $dir -Recurse -Filter *.inf -ErrorAction SilentlyContinue)
+  $out.infCount = $infs.Count
+  if ($infs.Count -eq 0) {
+    $out.message = 'The package contained no driver INF files. Nothing was installed. ' + (($expand | Out-String).Trim())
+  } else {
+    $log = New-Object System.Collections.ArrayList
+    foreach ($inf in $infs) {
+      $res = & pnputil.exe /add-driver $inf.FullName /install 2>&1
+      $text = ($res | Out-String)
+      [void]$log.Add($inf.Name + ': exit ' + $LASTEXITCODE)
+      if ($LASTEXITCODE -eq 0) { $out.installed = $out.installed + 1 }
+      if ($LASTEXITCODE -eq 3010) { $out.installed = $out.installed + 1; $out.reboot = $true }
+      $out.exitCode = [int]$LASTEXITCODE
+    }
+    $out.ok = ($out.installed -gt 0)
+    $out.message = ($log -join '; ')
+  }
+} catch {
+  $out.message = $_.Exception.Message
+}
+ConvertTo-Json -InputObject ([pscustomobject]$out) -Compress
+`
+
+export interface CatalogInstallParams {
+  update: DriverUpdate
+  createRestorePoint: boolean
+  onProgress: (progress: InstallProgress) => void
+  /** Injected so this stays testable without reaching into the source module. */
+  resolveUrls: (updateId: string) => Promise<string[]>
+}
+
+export async function installCatalogDriver(params: CatalogInstallParams): Promise<InstallOutcome> {
+  const { update, onProgress } = params
+  const catalog = update.catalog
+  if (!catalog) {
+    return { ok: false, rebootRequired: false, message: 'This item has no catalogue package.', resultCode: null }
+  }
+
+  if (!isElevated()) {
+    return {
+      ok: false,
+      rebootRequired: false,
+      message: `Installing a driver requires administrator rights. ${ELEVATION_HINT}`,
+      resultCode: null
+    }
+  }
+
+  const folder = join(tmpdir(), 'GameDriverPro-downloads', catalog.updateId)
+  const cabPath = join(folder, 'package.cab')
+  const extractDir = join(folder, 'extracted')
+
+  try {
+    if (!existsSync(folder)) mkdirSync(folder, { recursive: true })
+
+    onProgress({ updateId: update.id, stage: 'preparing', percent: null, message: 'Resolving the package download link' })
+    const urls = await params.resolveUrls(catalog.updateId)
+    const cabUrl = urls.find((url) => url.toLowerCase().endsWith('.cab')) ?? urls[0]
+    if (!cabUrl) {
+      throw new Error('The Update Catalog returned no download link for this package.')
+    }
+    if (!isAllowedHost(cabUrl)) {
+      throw new Error(`The catalogue returned a link outside Microsoft's update CDN: ${cabUrl}`)
+    }
+
+    if (params.createRestorePoint) {
+      onProgress({ updateId: update.id, stage: 'restore-point', percent: null, message: 'Creating a Windows restore point' })
+      const restore = await createRestorePoint(`GameDriver Pro — before ${update.deviceName} driver update`)
+      if (!restore.ok) {
+        onProgress({
+          updateId: update.id,
+          stage: 'restore-point',
+          percent: null,
+          message: `Restore point was not created: ${restore.message}`
+        })
+      }
+    }
+
+    onProgress({ updateId: update.id, stage: 'downloading', percent: 0, message: 'Downloading from Microsoft’s update CDN' })
+    let lastEmit = 0
+    await downloadFile(cabUrl, cabPath, (transferred, total) => {
+      const now = Date.now()
+      if (now - lastEmit < 200) return
+      lastEmit = now
+      onProgress({
+        updateId: update.id,
+        stage: 'downloading',
+        percent: total ? Math.round((transferred / total) * 100) : null,
+        message: 'Downloading driver package',
+        transferredBytes: transferred,
+        ...(total ? { totalBytes: total } : {})
+      })
+    })
+
+    onProgress({ updateId: update.id, stage: 'verifying', percent: null, message: 'Checking the package signature' })
+    const signature = await verifySignature(cabPath, 'Microsoft')
+    if (!signature.trusted) {
+      await rm(folder, { recursive: true, force: true }).catch(() => undefined)
+      store.addHistory({
+        timestamp: Date.now(),
+        kind: 'driver-install',
+        device: update.deviceName,
+        category: update.category,
+        fromVersion: update.currentVersion,
+        toVersion: update.availableVersion,
+        result: 'failed',
+        source: update.source.label,
+        detail: `Signature check failed — ${signature.detail}`
+      })
+      onProgress({ updateId: update.id, stage: 'failed', percent: null, message: signature.detail, error: 'signature' })
+      return {
+        ok: false,
+        rebootRequired: false,
+        message: `The downloaded package failed its signature check, so it was deleted without being installed. ${signature.detail}`,
+        resultCode: null
+      }
+    }
+
+    onProgress({
+      updateId: update.id,
+      stage: 'installing',
+      percent: null,
+      message: 'Extracting the package and installing with pnputil'
+    })
+    const result = await queryEmitted<{
+      ok: boolean
+      infCount: number
+      installed: number
+      exitCode: number
+      message: string
+      reboot: boolean
+    }>(EXPAND_AND_INSTALL_SCRIPT, { args: { CAB: cabPath, DIR: extractDir }, timeoutMs: 20 * 60_000 })
+
+    await rm(folder, { recursive: true, force: true }).catch(() => undefined)
+
+    const ok = result?.ok === true
+    const reboot = result?.reboot === true
+    const message = ok
+      ? `Installed ${result?.installed} of ${result?.infCount} driver package(s) from the catalogue.`
+      : (result?.message ?? 'pnputil did not install the package.')
+
+    store.addHistory({
+      timestamp: Date.now(),
+      kind: 'driver-install',
+      device: update.deviceName,
+      category: update.category,
+      fromVersion: update.currentVersion,
+      toVersion: update.availableVersion,
+      result: ok ? 'success' : 'failed',
+      source: update.source.label,
+      detail: message
+    })
+
+    if (ok) void getDriverInventory(true).catch(() => undefined)
+
+    onProgress({
+      updateId: update.id,
+      stage: ok ? 'done' : 'failed',
+      percent: ok ? 100 : null,
+      message,
+      rebootRequired: reboot
+    })
+
+    return {
+      ok,
+      rebootRequired: reboot,
+      message: ok && reboot ? `${message} Restart Windows to complete the change.` : message,
+      resultCode: result?.exitCode ?? null
+    }
+  } catch (error) {
+    await rm(folder, { recursive: true, force: true }).catch(() => undefined)
+    const message = describeError(error)
+    log.error('catalog-install', message)
+    store.addHistory({
+      timestamp: Date.now(),
+      kind: 'driver-install',
+      device: update.deviceName,
+      category: update.category,
+      fromVersion: update.currentVersion,
+      toVersion: update.availableVersion,
+      result: 'failed',
+      source: update.source.label,
+      detail: message
+    })
+    onProgress({ updateId: update.id, stage: 'failed', percent: null, message, error: 'exception' })
+    return { ok: false, rebootRequired: false, message, resultCode: null }
+  }
+}
+
 // --- Rollback ---------------------------------------------------------------
 
 export async function getRollbackInfo(deviceId: string): Promise<RollbackInfo> {

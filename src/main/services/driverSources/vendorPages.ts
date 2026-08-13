@@ -239,6 +239,7 @@ export const vendorPageSource: DriverSource = {
         rationale,
         action: 'manual',
         download: null,
+        catalog: null,
         sizeBytes: null,
         updateIdentity: null,
         verified: page !== null,

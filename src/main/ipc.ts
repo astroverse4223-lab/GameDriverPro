@@ -4,10 +4,12 @@ import type { InvokeChannel } from '../shared/ipc'
 import { getHardwareSnapshot } from './services/hardware'
 import { getDriverInventory } from './services/drivers'
 import { scanForDriverUpdates, lastScanResult, lastSourceStatuses } from './services/driverSources'
+import { catalogDownloadUrls } from './services/driverSources/catalogSource'
 import {
   backupDrivers,
   createRestorePoint,
   getRollbackInfo,
+  installCatalogDriver,
   installVendorDriver,
   installWindowsUpdateDriver,
   openDeviceManagerFor,
@@ -157,6 +159,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     }
 
     const onProgress = (progress: InstallProgress) => send('event:installProgress', progress)
+
+    if (offered.action === 'catalog-install') {
+      return installCatalogDriver({
+        update: offered,
+        createRestorePoint: createPoint,
+        onProgress,
+        resolveUrls: catalogDownloadUrls
+      })
+    }
 
     if (offered.action === 'vendor-install') {
       return installVendorDriver({

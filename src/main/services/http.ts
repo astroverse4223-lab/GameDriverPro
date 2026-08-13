@@ -12,7 +12,9 @@ const ALLOWED_HOSTS = new Set([
   'gfwsl.geforce.com',
   'us.download.nvidia.com',
   'www.amd.com',
-  'www.intel.com'
+  'www.intel.com',
+  // Microsoft Update Catalog: Microsoft's own published driver catalogue.
+  'www.catalog.update.microsoft.com'
 ])
 
 /**
@@ -21,7 +23,11 @@ const ALLOWED_HOSTS = new Set([
  * by suffix so a download can follow its region, while still refusing anything
  * outside it.
  */
-const ALLOWED_HOST_SUFFIXES = ['.download.nvidia.com']
+const ALLOWED_HOST_SUFFIXES = [
+  '.download.nvidia.com',
+  // Microsoft's update CDN, where catalog packages are actually served from.
+  '.download.windowsupdate.com'
+]
 
 export function isAllowedDownloadHost(hostname: string): boolean {
   return ALLOWED_HOSTS.has(hostname) || ALLOWED_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix))
@@ -103,6 +109,33 @@ export async function fetchText(url: string, timeoutMs = 15_000): Promise<string
     return await response.text()
   } catch (error) {
     log.warn('http', `GET ${url} failed: ${describeError(error)}`)
+    throw error instanceof HttpError ? error : new HttpError(describeError(error))
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/** Form POST, used by the Update Catalog's download-link endpoint. */
+export async function postForm(url: string, fields: Record<string, string>, timeoutMs = 30_000): Promise<string> {
+  if (!isAllowedHost(url)) {
+    throw new HttpError(`Refusing to contact a host that is not an approved official source: ${url}`)
+  }
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), timeoutMs)
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      signal: controller.signal,
+      headers: {
+        'User-Agent': USER_AGENT,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams(fields).toString()
+    })
+    if (!response.ok) throw new HttpError(`${response.status} ${response.statusText}`)
+    return await response.text()
+  } catch (error) {
+    log.warn('http', `POST ${url} failed: ${describeError(error)}`)
     throw error instanceof HttpError ? error : new HttpError(describeError(error))
   } finally {
     clearTimeout(timer)

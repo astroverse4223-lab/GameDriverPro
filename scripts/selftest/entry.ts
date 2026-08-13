@@ -13,6 +13,12 @@ import { getDriverInventory, compareVersions, driverAgeDays } from '../../src/ma
 import { scanForDriverUpdates } from '../../src/main/services/driverSources'
 import { deriveSeriesNames } from '../../src/main/services/driverSources/nvidiaSource'
 import { versionFromTitle, classifyWuUpdate } from '../../src/main/services/driverSources/windowsUpdate'
+import {
+  catalogSearchKey,
+  versionFromCatalogTitle,
+  searchCatalog,
+  catalogDownloadUrls
+} from '../../src/main/services/driverSources/catalogSource'
 import { buildHealthReport } from '../../src/main/services/health'
 import { analyseCrashes, moduleFromMessage } from '../../src/main/services/crashes'
 import { runNetworkTest, computeJitter } from '../../src/main/services/network'
@@ -123,6 +129,28 @@ function pureUnitChecks(): void {
   const vdf = parseVdf('"AppState"\n{\n\t"appid"\t\t"2670630"\n\t"name"\t\t"Test Game"\n}\n')
   const state = (vdf['AppState'] ?? {}) as Record<string, unknown>
   check('vdf parses nested scalars', state['appid'] === '2670630' && state['name'] === 'Test Game')
+
+  check(
+    'catalog key from full PCI hardware id',
+    catalogSearchKey('PCI\\VEN_8086&DEV_3E98&SUBSYS_86941043&REV_02', null) === 'PCI\\VEN_8086&DEV_3E98',
+    String(catalogSearchKey('PCI\\VEN_8086&DEV_3E98&SUBSYS_86941043&REV_02', null))
+  )
+  check(
+    'catalog key keeps HDAUDIO function',
+    catalogSearchKey('HDAUDIO\\FUNC_01&VEN_10EC&DEV_0899&SUBSYS_10438694', null) === 'HDAUDIO\\FUNC_01&VEN_10EC&DEV_0899',
+    String(catalogSearchKey('HDAUDIO\\FUNC_01&VEN_10EC&DEV_0899&SUBSYS_10438694', null))
+  )
+  check('catalog key from USB vid/pid', catalogSearchKey('USB\\VID_046D&PID_C52B', null) === 'USB\\VID_046D&PID_C52B')
+  check('catalog key rejects software device', catalogSearchKey('SWD\\WIREGUARD\\{GUID}', null) === null)
+  check(
+    'catalog version from dashed title',
+    versionFromCatalogTitle('Qualcomm Communications Inc. - Net - 10.0.3.463') === '10.0.3.463'
+  )
+  check(
+    'catalog version from parenthesised title',
+    versionFromCatalogTitle('Intel Corporation Display Driver Update (31.0.101.2141)') === '31.0.101.2141'
+  )
+  check('catalog version absent stays null', versionFromCatalogTitle('Realtek driver update for audio') === null)
 
   check('driverAgeDays null-safe', driverAgeDays(null) === null)
   check('driverAgeDays computes', (driverAgeDays(new Date(Date.now() - 86_400_000 * 10).toISOString()) ?? 0) >= 9)
@@ -281,6 +309,26 @@ async function main(): Promise<void> {
     const bad = await verifySignature(unsigned, 'NVIDIA Corporation')
     check('unsigned file is rejected', !bad.trusted, `${bad.status}`)
     rmSync(unsigned, { force: true })
+    return true
+  })
+
+  // Live check of the catalogue, including that a download link actually
+  // resolves to Microsoft's CDN. Nothing is downloaded or installed.
+  await step('Microsoft Update Catalog (live)', async () => {
+    const results = await searchCatalog('PCI\\VEN_8086&DEV_3E98')
+    line('catalog rows', results.length)
+    line('first row', results[0] ? `${results[0].title} · v${results[0].version} · ${results[0].lastUpdated}` : 'none')
+    check('catalogue returns rows for a real device', results.length > 0)
+    check('rows carry a parseable version', results.some((row) => row.version !== null))
+
+    const withVersion = results.find((row) => row.version !== null)
+    if (withVersion) {
+      const urls = await catalogDownloadUrls(withVersion.updateId)
+      line('download urls', urls.length)
+      line('first url host', urls[0] ? new URL(urls[0]).hostname : 'none')
+      check('a download link resolves', urls.length > 0)
+      check('link is on Microsoft’s update CDN', urls.every((url) => isAllowedHost(url)), urls[0] ?? '')
+    }
     return true
   })
 
