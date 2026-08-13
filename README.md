@@ -39,7 +39,12 @@ If a capability is missing, the app names it. It never quietly substitutes a gue
   - **NVIDIA** — the same driver-lookup service nvidia.com's own Drivers page uses. Product and OS identifiers are resolved from NVIDIA's published lookup tables, never hard-coded.
   - **Windows Update** — via the Windows Update Agent COM API, the same mechanism Settings › Windows Update uses.
   - **Manufacturer pages** — a registry of official download pages for AMD, Intel, Realtek, ASUS, MSI, Gigabyte, ASRock, Dell, HP, Lenovo, Acer, Qualcomm, MediaTek and Microsoft, used to link out honestly where no machine-readable source exists.
-- Installation through the Windows Update Agent with an optional restore point, an explicit confirmation the renderer must echo back, and a recorded result.
+- **In-app installation**, by two routes:
+  - *Windows Update packages* — installed through the Windows Update Agent, the same component Settings uses.
+  - *NVIDIA display drivers* — the app downloads the package from the URL NVIDIA's own API returned (host-checked, and re-checked across every redirect so it cannot leave NVIDIA's distribution domain), verifies the file's Authenticode signature names **NVIDIA Corporation**, and only then runs it. A file that fails the signature check is deleted without being executed. Silent and clean-install are both offered, using NVIDIA's documented switches.
+
+  No third-party driver repository is involved at any point — that is the mechanism behind most "driver updater" tools and the reason they install mismatched drivers. AMD, Intel and board vendors publish no stable machine-readable source, so those stay hand-offs to the official page rather than being faked.
+- Every install requires an explicit confirmation the renderer must echo back, takes an optional restore point first, and records its result.
 - Driver backup via `pnputil /export-driver`, and rollback that hands off to Device Manager's own button (with an explanation of why nothing else is safe).
 - Local history of every install, rollback, restore point, backup, scan and boost.
 

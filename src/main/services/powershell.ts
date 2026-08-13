@@ -70,14 +70,42 @@ function encode(script: string): string {
   return Buffer.from(`${PREAMBLE}; ${script}`, 'utf16le').toString('base64')
 }
 
+/**
+ * Builds the child environment, pinning PSModulePath to Windows PowerShell's own
+ * module directories.
+ *
+ * On a machine with PowerShell 7 installed, the inherited PSModulePath lists
+ * PS7's module directory *before* Windows PowerShell's. A PowerShell host fixes
+ * this up when it launches a different edition, but a raw spawn from Node does
+ * not — so powershell.exe (5.1, .NET Framework) finds PS7's .NET Core build of a
+ * module first and fails with "the module could not be loaded". That silently
+ * broke Get-AuthenticodeSignature, and would break any other module-backed
+ * cmdlet on the same machines.
+ *
+ * Dropping the user's own module directory is deliberate: nothing here should be
+ * resolvable to a module a third party dropped in Documents.
+ */
+function buildEnv(args: Record<string, string>): NodeJS.ProcessEnv {
+  const base: NodeJS.ProcessEnv = { ...process.env }
+  const systemRoot = base['SystemRoot'] ?? base['SYSTEMROOT'] ?? 'C:\\Windows'
+  const programFiles = base['ProgramFiles'] ?? 'C:\\Program Files'
+
+  base['PSModulePath'] = [
+    `${programFiles}\\WindowsPowerShell\\Modules`,
+    `${systemRoot}\\system32\\WindowsPowerShell\\v1.0\\Modules`
+  ].join(';')
+
+  for (const [key, value] of Object.entries(args)) {
+    base[`GDP_ARG_${key}`] = value
+  }
+  return base
+}
+
 /** Run a script and return raw stdout. */
 export async function runRaw(script: string, options: PsOptions = {}): Promise<string> {
   await acquire()
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT
-  const env: NodeJS.ProcessEnv = { ...process.env }
-  for (const [key, value] of Object.entries(options.args ?? {})) {
-    env[`GDP_ARG_${key}`] = value
-  }
+  const env = buildEnv(options.args ?? {})
 
   return new Promise<string>((resolve, reject) => {
     let child: ChildProcessWithoutNullStreams
@@ -220,8 +248,7 @@ export class PowerShellStream {
 
   start(args: Record<string, string> = {}): boolean {
     if (this.child) return true
-    const env: NodeJS.ProcessEnv = { ...process.env }
-    for (const [key, value] of Object.entries(args)) env[`GDP_ARG_${key}`] = value
+    const env = buildEnv(args)
 
     try {
       this.child = spawn(

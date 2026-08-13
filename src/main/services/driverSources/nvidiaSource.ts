@@ -1,4 +1,4 @@
-import { fetchJson, fetchText, parseLookupValues } from '../http'
+import { fetchJson, fetchText, isAllowedHost, parseLookupValues } from '../http'
 import { compareVersions, driverAgeDays } from '../drivers'
 import { store } from '../db'
 import { log, describeError } from './../logger'
@@ -314,6 +314,10 @@ async function checkGpu(gpu: GpuInfo, ctx: SourceContext): Promise<{ update: Dri
   const downloadUrl = info?.DownloadURL ?? null
   const name = info?.Name ? decodeURIComponent(info.Name.replace(/\+/g, ' ')) : 'NVIDIA Display Driver'
 
+  // Only offer to install it ourselves when NVIDIA handed us a URL on their own
+  // distribution domain. Anything else stays a hand-off to their download page.
+  const officialDownload = downloadUrl !== null && isAllowedHost(downloadUrl)
+
   return {
     note: `${gpu.name}: ${installed ?? 'unknown'} → ${available}`,
     update: {
@@ -333,17 +337,25 @@ async function checkGpu(gpu: GpuInfo, ctx: SourceContext): Promise<{ update: Dri
       classification: comparison === null ? 'unknown' : classification,
       risk,
       rationale,
-      // NVIDIA's installer must run interactively (it offers clean-install and
-      // component choices), so the app hands off rather than pretending to
-      // silently install it.
-      action: 'manual',
+      action: officialDownload ? 'vendor-install' : 'manual',
+      download: officialDownload
+        ? {
+            url: downloadUrl,
+            // The downloaded file must carry NVIDIA's own Authenticode
+            // signature before the app will run it.
+            expectedSigner: 'NVIDIA Corporation',
+            // NVIDIA's documented installer switches.
+            silentArgs: ['-s', '-noreboot'],
+            cleanArgs: ['-clean'],
+            installerName: name
+          }
+        : null,
       sizeBytes: null,
       updateIdentity: null,
-      verified: downloadUrl !== null && downloadUrl.startsWith('https://us.download.nvidia.com/'),
-      verificationNote:
-        downloadUrl && downloadUrl.startsWith('https://us.download.nvidia.com/')
-          ? 'Download link is served from NVIDIA’s official distribution host.'
-          : 'Download link could not be confirmed as an official NVIDIA host — open NVIDIA’s driver page instead.'
+      verified: officialDownload,
+      verificationNote: officialDownload
+        ? 'Served from NVIDIA’s own distribution host, and the file’s signature is checked against “NVIDIA Corporation” before it is allowed to run.'
+        : 'Download link could not be confirmed as an official NVIDIA host — open NVIDIA’s driver page instead.'
     }
   }
 }
@@ -367,6 +379,7 @@ function manualFallback(gpu: GpuInfo, reason: string): DriverUpdate {
     risk: 'unknown',
     rationale: [reason, 'Check NVIDIA’s official driver page manually to confirm the current version for this GPU.'],
     action: 'manual',
+    download: null,
     sizeBytes: null,
     updateIdentity: null,
     verified: true,

@@ -238,6 +238,7 @@ export const vendorPageSource: DriverSource = {
         risk: hasProblem ? 'low' : 'unknown',
         rationale,
         action: 'manual',
+        download: null,
         sizeBytes: null,
         updateIdentity: null,
         verified: page !== null,

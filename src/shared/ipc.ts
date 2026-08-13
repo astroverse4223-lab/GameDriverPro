@@ -94,6 +94,10 @@ export interface InstallRequest {
   confirmedDeviceName: string
   confirmedFromVersion: string | null
   confirmedToVersion: string | null
+  /** Vendor packages only: wipe existing driver settings before installing. */
+  cleanInstall?: boolean
+  /** Vendor packages only: run unattended rather than showing the vendor UI. */
+  silent?: boolean
 }
 
 export interface StartupToggleRequest {

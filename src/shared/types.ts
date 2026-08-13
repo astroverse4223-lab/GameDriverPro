@@ -256,6 +256,26 @@ export interface DriverSourceRef {
   kind: 'windows-update' | 'vendor-api' | 'vendor-page'
 }
 
+/**
+ * A vendor package the app can fetch and run itself.
+ *
+ * Only ever populated from a URL the manufacturer's own API returned, on a host
+ * this app recognises as that manufacturer's distribution domain. The signature
+ * of the downloaded file is checked against `expectedSigner` before it is
+ * allowed to run — so a hijacked URL or a corrupted download cannot execute.
+ */
+export interface VendorDownload {
+  url: string
+  /** Publisher name that must appear in the Authenticode signature. */
+  expectedSigner: string
+  /** Arguments for an unattended install, per the vendor's documented switches. */
+  silentArgs: string[]
+  /** Adds a clean install (wipes existing profiles/settings first). */
+  cleanArgs: string[]
+  /** What the installer is, in words, for the confirmation dialog. */
+  installerName: string
+}
+
 export interface DriverUpdate {
   id: string
   deviceName: string
@@ -268,8 +288,14 @@ export interface DriverUpdate {
   risk: RiskLevel
   /** Human-readable explanation lines. Every recommendation must justify itself. */
   rationale: string[]
-  /** 'install' = we can install it. 'manual' = user installs from official page. */
-  action: 'install' | 'manual'
+  /**
+   * 'install'        — installable through the Windows Update Agent.
+   * 'vendor-install' — the app can download and run the manufacturer's own installer.
+   * 'manual'         — hand off to the manufacturer's official page.
+   */
+  action: 'install' | 'vendor-install' | 'manual'
+  /** Set when action is 'vendor-install'. */
+  download: VendorDownload | null
   sizeBytes: number | null
   /** Windows Update identity, when the source is Windows Update. */
   updateIdentity: { updateId: string; revision: number } | null
@@ -305,9 +331,12 @@ export interface ScanProgress {
 export interface InstallProgress {
   updateId: string
   stage: 'preparing' | 'restore-point' | 'downloading' | 'verifying' | 'installing' | 'done' | 'failed'
-  /** Real percentage from the installer, or null when the stage reports none. */
+  /** Real percentage, or null when the stage genuinely cannot report one. */
   percent: number | null
   message: string
+  /** Bytes transferred so far, when downloading. */
+  transferredBytes?: number
+  totalBytes?: number
   rebootRequired?: boolean
   error?: string
 }

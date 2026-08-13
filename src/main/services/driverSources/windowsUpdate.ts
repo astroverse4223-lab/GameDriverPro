@@ -267,6 +267,7 @@ export const windowsUpdateSource: DriverSource = {
         // agent Windows itself uses — except downgrades, which the app will not
         // offer as a one-click action.
         action: isDowngrade ? 'manual' : 'install',
+        download: null,
         sizeBytes: row.sizeBytes,
         updateIdentity: { updateId: row.updateId, revision: row.revision },
         verified: true,

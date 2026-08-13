@@ -86,7 +86,12 @@ export function DriversPage() {
   const [query, setQuery] = useState('')
   const [detail, setDetail] = useState<DriverUpdate | null>(null)
   const [rollback, setRollback] = useState<RollbackInfo | null>(null)
-  const [install, setInstall] = useState<{ update: DriverUpdate; restorePoint: boolean } | null>(null)
+  const [install, setInstall] = useState<{
+    update: DriverUpdate
+    restorePoint: boolean
+    cleanInstall: boolean
+    silent: boolean
+  } | null>(null)
   const [progress, setProgress] = useState<InstallProgress | null>(null)
   const [installing, setInstalling] = useState(false)
 
@@ -142,7 +147,9 @@ export function DriversPage() {
         createRestorePoint: install.restorePoint,
         confirmedDeviceName: install.update.deviceName,
         confirmedFromVersion: install.update.currentVersion,
-        confirmedToVersion: install.update.availableVersion
+        confirmedToVersion: install.update.availableVersion,
+        cleanInstall: install.cleanInstall,
+        silent: install.silent
       })
       toast({
         title: outcome.ok ? 'Driver installed' : 'Installation did not complete',
@@ -282,7 +289,7 @@ export function DriversPage() {
                             key={update.id}
                             update={update}
                             onDetails={() => setDetail(update)}
-                            onInstall={() => setInstall({ update, restorePoint: true })}
+                            onInstall={() => setInstall({ update, restorePoint: true, cleanInstall: false, silent: true })}
                           />
                         ))}
                       </div>
@@ -392,11 +399,14 @@ export function DriversPage() {
                   Open official source
                 </Button>
               )}
-              {detail.action === 'install' && (
-                <Button variant="primary" onClick={() => {
-                  setInstall({ update: detail, restorePoint: true })
-                  setDetail(null)
-                }}>
+              {detail.action !== 'manual' && (
+                <Button
+                  variant="primary"
+                  onClick={() => {
+                    setInstall({ update: detail, restorePoint: true, cleanInstall: false, silent: true })
+                    setDetail(null)
+                  }}
+                >
                   Update…
                 </Button>
               )}
@@ -483,6 +493,23 @@ export function DriversPage() {
               body="A restore point can help revert some system changes if the new driver misbehaves. Windows does not guarantee recovery, and it limits how often restore points can be created."
             />
 
+            {install.update.action === 'vendor-install' && install.update.download && (
+              <>
+                <CheckRow
+                  checked={install.silent}
+                  onChange={(next) => setInstall({ ...install, silent: next })}
+                  title="Install unattended"
+                  body={`Runs ${install.update.download.installerName} with the manufacturer's documented silent switches. Untick to watch the installer's own window and choose options yourself. Either way the screen may flicker and go black briefly while the display driver is replaced.`}
+                />
+                <CheckRow
+                  checked={install.cleanInstall}
+                  onChange={(next) => setInstall({ ...install, cleanInstall: next })}
+                  title="Clean installation"
+                  body="Removes the existing driver's settings and per-game profiles first, then installs fresh. This is the standard fix for a driver misbehaving after several upgrades — at the cost of losing your saved profiles and any overclock settings."
+                />
+              </>
+            )}
+
             {!install.update.currentVersion && (
               <Note tone="warn">
                 GameDriver Pro could not determine which version is currently installed for this device, so it cannot tell you
@@ -494,20 +521,35 @@ export function DriversPage() {
               <div className="stack stack--sm">
                 <div className="split small">
                   <span>{progress.message}</span>
-                  <span className="right faint mono">{progress.stage}</span>
+                  <span className="right faint mono">
+                    {progress.transferredBytes !== undefined
+                      ? `${bytes(progress.transferredBytes)}${progress.totalBytes ? ` / ${bytes(progress.totalBytes)}` : ''}`
+                      : progress.stage}
+                  </span>
                 </div>
                 <Bar value={progress.percent} />
-                <div className="small faint">
-                  Windows Update does not report a download percentage to applications, so this bar shows the current stage
-                  rather than a made-up number.
-                </div>
+                {progress.percent === null && (
+                  <div className="small faint">
+                    This stage reports no percentage, so the bar shows activity rather than a made-up number.
+                  </div>
+                )}
               </div>
             )}
 
-            <Note>
-              Nothing is installed until you press Install now. Windows Update performs the download, signature check and
-              installation itself; GameDriver Pro only asks it to install this one package and records the result.
-            </Note>
+            {install.update.action === 'vendor-install' && install.update.download ? (
+              <Note>
+                GameDriver Pro downloads this package from{' '}
+                <span className="mono">{new URL(install.update.download.url).hostname}</span> — the URL{' '}
+                {install.update.source.label.replace(/^Official /, '')} itself returned — then checks its Authenticode
+                signature names <strong>{install.update.download.expectedSigner}</strong> before running it. If that check
+                fails the file is deleted and nothing is executed. No third-party driver repository is involved at any point.
+              </Note>
+            ) : (
+              <Note>
+                Nothing is installed until you press Install now. Windows Update performs the download, signature check and
+                installation itself; GameDriver Pro only asks it to install this one package and records the result.
+              </Note>
+            )}
           </div>
         </Modal>
       )}
@@ -635,9 +677,9 @@ function UpdateCard({
         <Button variant="ghost" onClick={onDetails}>
           View details
         </Button>
-        {update.action === 'install' ? (
+        {update.action !== 'manual' ? (
           <Button variant="primary" icon={<IconDownload size={14} />} onClick={onInstall}>
-            Update
+            {update.action === 'vendor-install' ? 'Download & install' : 'Update'}
           </Button>
         ) : (
           <Button

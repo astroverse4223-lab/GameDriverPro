@@ -8,6 +8,7 @@ import {
   backupDrivers,
   createRestorePoint,
   getRollbackInfo,
+  installVendorDriver,
   installWindowsUpdateDriver,
   openDeviceManagerFor,
   restorePointStatus
@@ -31,7 +32,7 @@ import { store } from './services/db'
 import { getSettings, updateSettings } from './services/settings'
 import { buildDiagnostics } from './services/diagnostics'
 import { log, describeError } from './services/logger'
-import type { GameProfile } from '../shared/types'
+import type { GameProfile, InstallProgress } from '../shared/types'
 
 /**
  * The privileged side of the IPC boundary.
@@ -146,17 +147,35 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const fromVersion = optString(payload, 'confirmedFromVersion', 100)
     const toVersion = optString(payload, 'confirmedToVersion', 100)
 
-    // The renderer sends back the composite id it displayed; unpack it and
-    // confirm it is one this session actually offered.
-    const match = /^wu:([0-9a-fA-F-]{36}):(\d+)$/.exec(updateId)
-    if (!match) {
-      throw new Error('Only Windows Update packages can be installed by GameDriver Pro. Use the official manufacturer page for this device.')
-    }
+    // Only something this session actually scanned and offered can be installed,
+    // and the renderer has to echo back the device name it displayed — so a
+    // stale or tampered request cannot install a package the user never saw.
     const offered = lastScanResult()?.updates.find((u) => u.id === updateId)
     if (!offered) throw new Error('That update is not in the latest scan results. Run a new scan first.')
     if (offered.deviceName !== deviceName) {
       throw new Error('The confirmation did not match the update on screen. Nothing was installed.')
     }
+
+    const onProgress = (progress: InstallProgress) => send('event:installProgress', progress)
+
+    if (offered.action === 'vendor-install') {
+      return installVendorDriver({
+        update: offered,
+        createRestorePoint: createPoint,
+        cleanInstall: optBool(payload, 'cleanInstall'),
+        silent: optBool(payload, 'silent', true),
+        onProgress
+      })
+    }
+
+    if (offered.action !== 'install') {
+      throw new Error(
+        'This item is not installable by GameDriver Pro — use the official manufacturer page shown on the card.'
+      )
+    }
+
+    const match = /^wu:([0-9a-fA-F-]{36}):(\d+)$/.exec(updateId)
+    if (!match) throw new Error('Malformed Windows Update identity.')
 
     return installWindowsUpdateDriver({
       updateId: match[1] ?? '',
@@ -165,7 +184,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       fromVersion,
       toVersion,
       createRestorePoint: createPoint,
-      onProgress: (progress) => send('event:installProgress', progress)
+      onProgress
     })
   })
 

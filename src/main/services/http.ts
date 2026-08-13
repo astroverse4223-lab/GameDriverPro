@@ -15,6 +15,18 @@ const ALLOWED_HOSTS = new Set([
   'www.intel.com'
 ])
 
+/**
+ * NVIDIA serves driver packages from regional mirrors (uk.download.nvidia.com,
+ * international-gfe.download.nvidia.com, …). Allow that one distribution domain
+ * by suffix so a download can follow its region, while still refusing anything
+ * outside it.
+ */
+const ALLOWED_HOST_SUFFIXES = ['.download.nvidia.com']
+
+export function isAllowedDownloadHost(hostname: string): boolean {
+  return ALLOWED_HOSTS.has(hostname) || ALLOWED_HOST_SUFFIXES.some((suffix) => hostname.endsWith(suffix))
+}
+
 const USER_AGENT = 'GameDriverPro/0.1 (+local driver manager)'
 
 export class HttpError extends Error {}
@@ -22,10 +34,57 @@ export class HttpError extends Error {}
 export function isAllowedHost(url: string): boolean {
   try {
     const parsed = new URL(url)
-    return parsed.protocol === 'https:' && ALLOWED_HOSTS.has(parsed.hostname)
+    return parsed.protocol === 'https:' && isAllowedDownloadHost(parsed.hostname)
   } catch {
     return false
   }
+}
+
+/**
+ * Streams a file to disk, reporting genuine progress from Content-Length.
+ * Every redirect hop is re-checked against the host allow-list, so a redirect
+ * cannot walk the download off the manufacturer's distribution domain.
+ */
+export async function downloadFile(
+  url: string,
+  destination: string,
+  onProgress: (transferred: number, total: number | null) => void,
+  signal?: AbortSignal
+): Promise<{ bytes: number; finalUrl: string }> {
+  if (!isAllowedHost(url)) {
+    throw new HttpError(`Refusing to download from a host that is not an approved official source: ${url}`)
+  }
+
+  const response = await fetch(url, {
+    redirect: 'follow',
+    headers: { 'User-Agent': USER_AGENT },
+    ...(signal ? { signal } : {})
+  })
+
+  if (!isAllowedHost(response.url)) {
+    throw new HttpError(`Download redirected off the manufacturer's distribution domain: ${response.url}`)
+  }
+  if (!response.ok) throw new HttpError(`${response.status} ${response.statusText}`)
+  if (!response.body) throw new HttpError('The server returned an empty response body.')
+
+  const lengthHeader = response.headers.get('content-length')
+  const total = lengthHeader === null ? null : Number(lengthHeader)
+  const { createWriteStream } = await import('node:fs')
+  const { pipeline } = await import('node:stream/promises')
+  const { Readable, Transform } = await import('node:stream')
+
+  let transferred = 0
+  const counter = new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      transferred += chunk.length
+      onProgress(transferred, Number.isFinite(total) ? total : null)
+      callback(null, chunk)
+    }
+  })
+
+  await pipeline(Readable.fromWeb(response.body as never), counter, createWriteStream(destination))
+  log.info('http', `Downloaded ${transferred} bytes from ${new URL(response.url).hostname}`)
+  return { bytes: transferred, finalUrl: response.url }
 }
 
 export async function fetchText(url: string, timeoutMs = 15_000): Promise<string> {

@@ -18,7 +18,11 @@ import { analyseCrashes, moduleFromMessage } from '../../src/main/services/crash
 import { runNetworkTest, computeJitter } from '../../src/main/services/network'
 import { getGameLibrary, parseVdf } from '../../src/main/services/games'
 import { buildBoostPlan, listProcesses, listStartupItems, listPowerPlans } from '../../src/main/services/boost'
-import { restorePointStatus } from '../../src/main/services/driverActions'
+import { restorePointStatus, verifySignature } from '../../src/main/services/driverActions'
+import { isAllowedHost } from '../../src/main/services/http'
+import { existsSync, writeFileSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { monitor } from '../../src/main/services/monitor'
 import { nvidiaVendorVersion } from '../../src/main/services/nvidia'
 
@@ -235,6 +239,46 @@ async function main(): Promise<void> {
 
   const restore = await step('restore point status', () => restorePointStatus())
   if (restore) line('protection', restore.note)
+
+  // The gate that makes downloading and running a vendor installer acceptable.
+  // Exercised against real signed binaries, including one signed by the exact
+  // publisher the NVIDIA install path requires.
+  await step('installer signature verification', async () => {
+    check('rejects a non-official download host', !isAllowedHost('https://drivers.example.com/nvidia.exe'))
+    check('rejects plain http on an official host', !isAllowedHost('http://us.download.nvidia.com/a.exe'))
+    check('accepts the official download host', isAllowedHost('https://us.download.nvidia.com/Windows/610.88/a.exe'))
+    check('accepts a regional mirror of it', isAllowedHost('https://uk.download.nvidia.com/Windows/610.88/a.exe'))
+    check('rejects a lookalike host', !isAllowedHost('https://download.nvidia.com.evil.net/a.exe'))
+
+    // Probe a known-signed system binary. Who signed it varies by machine (a
+    // driver tool may carry the vendor's signature or Microsoft's WHQL one), so
+    // discover the real subject first and assert against that.
+    const signedFile = ['C:\\Windows\\System32\\nvidia-smi.exe', 'C:\\Windows\\System32\\notepad.exe'].find((p) =>
+      existsSync(p)
+    )
+    if (signedFile) {
+      const probe = await verifySignature(signedFile, '')
+      line('probe file', signedFile)
+      line('probe signature', `${probe.status} — ${probe.subject.slice(0, 72)}`)
+      check('a signed system binary verifies as Valid', probe.status === 'Valid', probe.detail)
+
+      const cn = /CN=([^,]+)/.exec(probe.subject)?.[1]?.trim() ?? ''
+      if (cn) {
+        const matching = await verifySignature(signedFile, cn)
+        check('correct publisher is trusted', matching.trusted, matching.detail)
+      }
+
+      const wrongSigner = await verifySignature(signedFile, 'Definitely Not The Publisher')
+      check('valid signature but wrong publisher is rejected', !wrongSigner.trusted, wrongSigner.detail)
+    }
+
+    const unsigned = join(tmpdir(), 'gdp-unsigned-probe.exe')
+    writeFileSync(unsigned, Buffer.from('MZ not a real executable'))
+    const bad = await verifySignature(unsigned, 'NVIDIA Corporation')
+    check('unsigned file is rejected', !bad.trusted, `${bad.status}`)
+    rmSync(unsigned, { force: true })
+    return true
+  })
 
   const network = await step('network test', () => runNetworkTest())
   if (network) {
